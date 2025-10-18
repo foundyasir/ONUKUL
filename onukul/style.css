@@ -1,0 +1,30 @@
+/* style.css - optional overrides */
+body {
+    font-family: 'Hind Siliguri', sans-serif;
+}
+
+.btn-primary {
+    background-color: #0ea5e9;
+    color: white;
+}
+
+.btn-outline {
+    border: 2px solid #0ea5e9;
+    color: #0ea5e9;
+}
+
+.card {
+    background: #fff;
+    border-radius: 1rem;
+    padding: 1.25rem;
+    box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+}
+
+.fade-in {
+    animation: fadein 0.25s ease;
+}
+
+@keyframes fadein {
+    from { opacity: 0; transform: translateY(4px); }
+    to { opacity: 1; transform: none; }
+}

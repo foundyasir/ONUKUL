@@ -1,0 +1,1000 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>অনুকূূল : সবার জন্যে</title>
+  <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet" />
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css" />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+  <style>
+    :root { --brand:#0ea5e9; }
+    body{ font-family:'Inter',system-ui,Segoe UI,sans-serif; }
+    .fade-in{ animation:fadein .25s ease; }
+    @keyframes fadein{ from{opacity:.0;transform:translateY(4px)} to{opacity:1;transform:none} }
+    .btn{ display: inline-flex; align-items: center; justify-content: center; padding: 0.5rem 1rem; border-radius: 0.5rem; font-weight: 600; }
+    .btn-primary{ background:var(--brand); color:#fff; }
+    .btn-outline{ border:2px solid #fff; color:#fff; }
+    .card{ background-color: #fff; border-radius: 1rem; box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px 0 rgba(0, 0, 0, 0.06); padding: 1.25rem; }
+    .chip{ padding: 0.25rem 0.5rem; border-radius: 0.375rem; font-size: 0.75rem; font-weight: 600; }
+    .chip-pending{ background-color: #fef3c7; color: #92400e; }
+    .chip-approved{ background-color: #dcfce7; color: #166534; }
+    .chip-rejected{ background-color: #fee2e2; color: #991b1b; }
+    .priority-high{ border-left:4px solid #ef4444 }
+    .priority-medium{ border-left:4px solid #f59e0b }
+    .priority-low{ border-left:4px solid #10b981 }
+    .navlink{ transition: color 0.15s ease-in-out; }
+    .navlink:hover{ color: #bfdbfe; }
+    .grid-3{ display:grid; grid-template-columns:repeat(1,minmax(0,1fr)); gap:1rem }
+    @media(min-width:768px){ .grid-3{ grid-template-columns:repeat(3,minmax(0,1fr)); } }
+    .kpi{ background-color: #fff; border-radius: 1rem; box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px 0 rgba(0, 0, 0, 0.06); padding: 1.25rem; display: flex; align-items: center; justify-content: space-between; }
+    .kpi i{ font-size: 1.5rem; color:var(--brand) }
+    .tbl{ width: 100%; font-size: 0.875rem; }
+    .tbl th{ text-align: left; background-color: #f9fafb; padding: 0.5rem; font-weight: 600; }
+    .tbl td{ padding: 0.5rem; border-top: 1px solid #e5e7eb; }
+    .field{ width: 100%; padding: 0.5rem 0.75rem; border: 1px solid #d1d5db; border-radius: 0.5rem; }
+    .field:focus{ outline: none; box-shadow: 0 0 0 2px #60a5fa; }
+    #map{ height: 480px; border-radius: 1rem; }
+    .note{ font-size: 0.75rem; color: #6b7280; }
+
+  </style>
+</head>
+<body class="bg-gray-100">
+  <!-- App Root -->
+  <div id="app" class="min-h-screen flex flex-col"></div>
+<script>
+// -------------- helpers --------------
+function toast(msg,type='info'){
+  const el = document.createElement('div');
+  el.className = `fixed top-4 right-4 px-4 py-2 rounded-lg text-white z-50 fade-in ${type==='success'?'bg-green-600':type==='error'?'bg-red-600':'bg-blue-600'}`;
+  el.textContent = msg; document.body.appendChild(el); setTimeout(()=>el.remove(),2500);
+}
+const state = { session:null, packages:[], inventory:[], aidRequests:[], route: location.hash.replace('#','')||'home' };
+function go(route){ state.route=route; location.hash=route; render(); }
+function currentUser(){ return state.session; }
+
+// -------------- static data --------------
+// [ADD] district centroids (approximate)
+const DIST_CENTROID = {
+  "Bagerhat":[22.651,-89.785],"Bandarban":[22.195,92.218],"Barguna":[22.161,90.125],"Barishal":[22.701,90.353],
+  "Bhola":[22.686,90.641],"Bogura":[24.846,89.377],"Brahmanbaria":[23.964,91.111],"Chandpur":[23.220,90.647],
+  "Chattogram":[22.356,91.783],"Chuadanga":[23.641,88.846],"Cox’s Bazar":[21.427,92.006],"Cumilla":[23.460,91.180],
+  "Dhaka":[23.780,90.407],"Dinajpur":[25.627,88.635],"Faridpur":[23.607,89.842],"Feni":[23.018,91.401],
+  "Gaibandha":[25.329,89.542],"Gazipur":[24.004,90.426],"Gopalganj":[23.005,89.826],"Habiganj":[24.377,91.415],
+  "Jamalpur":[24.922,89.948],"Jashore":[23.163,89.218],"Jhalokathi":[22.640,90.200],"Jhenaidah":[23.544,89.153],
+  "Joypurhat":[25.096,89.040],"Khagrachari":[23.106,91.984],"Khulna":[22.845,89.540],"Kishoreganj":[24.426,90.782],
+  "Kurigram":[25.805,89.648],"Kushtia":[23.902,89.120],"Lakshmipur":[22.942,90.841],"Lalmonirhat":[25.993,89.284],
+  "Madaripur":[23.164,90.204],"Magura":[23.485,89.419],"Manikganj":[23.861,90.002],"Meherpur":[23.767,88.631],
+  "Moulvibazar":[24.482,91.777],"Munshiganj":[23.542,90.526],"Mymensingh":[24.752,90.407],"Naogaon":[24.813,88.944],
+  "Narail":[23.172,89.512],"Narayanganj":[23.620,90.500],"Narsingdi":[23.922,90.722],"Natore":[24.412,88.987],
+  "Netrokona":[24.886,90.731],"Nilphamari":[25.951,88.856],"Noakhali":[22.823,91.099],"Pabna":[24.006,89.244],
+  "Panchagarh":[26.341,88.554],"Patuakhali":[22.360,90.329],"Pirojpur":[22.579,89.975],"Rajbari":[23.757,89.647],
+  "Rajshahi":[24.374,88.604],"Rangamati":[22.732,92.111],"Rangpur":[25.743,89.275],"Satkhira":[22.708,89.072],
+  "Shariatpur":[23.222,90.350],"Sherpur":[25.018,90.007],"Sirajganj":[24.455,89.708],"Sunamganj":[25.070,91.402],
+  "Sylhet":[24.889,91.869],"Tangail":[24.255,89.916],"Thakurgaon":[26.033,88.468]
+};
+
+const DISTRICTS = [
+ 'Bagerhat','Bandarban','Barguna','Barishal','Bhola','Bogura','Brahmanbaria','Chandpur','Chattogram','Chuadanga',
+ 'Cox’s Bazar','Cumilla','Dhaka','Dinajpur','Faridpur','Feni','Gaibandha','Gazipur','Gopalganj','Habiganj',
+ 'Jamalpur','Jashore','Jhalokathi','Jhenaidah','Joypurhat','Khagrachari','Khulna','Kishoreganj','Kurigram','Kushtia',
+ 'Lakshmipur','Lalmonirhat','Madaripur','Magura','Manikganj','Meherpur','Moulvibazar','Munshiganj','Mymensingh','Naogaon',
+ 'Narail','Narayanganj','Narsingdi','Natore','Netrokona','Nilphamari','Noakhali','Pabna','Panchagarh','Patuakhali',
+ 'Pirojpur','Rajbari','Rajshahi','Rangamati','Rangpur','Satkhira','Shariatpur','Sherpur','Sirajganj','Sunamganj',
+ 'Sylhet','Tangail','Thakurgaon'
+];
+function districtSelect(name, required=true){
+  return `<select class="field" name="${name}" ${required?'required':''}>
+    ${DISTRICTS.map(d=>`<option value="${d}">${d}</option>`).join('')}
+  </select>`;
+}
+
+// -------------- view helpers --------------
+function joinPackages(pk){
+  // 1) If the API already returns an array of packages (maybe with nested items)
+  if (Array.isArray(pk)) {
+    return pk.map(p => ({
+      id: Number(p.id || p.package_id),
+      name: p.name,
+      description: p.description,
+      items: (p.items || p.package_items || []).map(it => ({
+        name: it.name || it.item_name,
+        quantity: Number(it.quantity),
+        unit: it.unit
+      }))
+    }));
+  }
+
+  // 2) If the API returns {packages:[], items:[]}
+  if (pk && pk.packages && pk.items) {
+    const map = {};
+    (pk.items || []).forEach(it => {
+      (map[it.package_id] ||= []).push({
+        name: it.item_name,
+        quantity: Number(it.quantity),
+        unit: it.unit
+      });
+    });
+    return (pk.packages || []).map(p => ({
+      id: Number(p.id),
+      name: p.name,
+      description: p.description,
+      items: map[p.id] || []
+    }));
+  }
+
+  // 3) Fallback
+  return [];
+}
+
+function mustLogin(){
+  return `<div class="max-w-xl mx-auto px-4 py-10 fade-in"><div class="card text-center">
+    <h2 class="text-xl font-bold">Login Required</h2>
+    <p>Please <button class="text-blue-600" onclick="go('login')">login</button>.</p>
+  </div></div>`;
+}
+
+// -------------- views --------------
+function Header(){
+  const funds = (state.stats && typeof state.stats.total_funds_raised==='number')
+  ? state.stats.total_funds_raised.toFixed(2) : '0.00';
+
+  const u = currentUser();
+  return `
+  <header class="bg-blue-800 text-white">
+    <div class="max-w-7xl mx-auto px-4 py-3 flex items-center justify-between">
+      <div class="flex items-center gap-2"><i class="fa-solid fa-hand-holding-heart text-2xl"></i><span class="font-bold text-xl">অনুকূূল</span></div>
+        <span class="hidden md:inline-block chip bg-white text-blue-800 ml-4">৳ <b id="funds-chip">${funds}</b></span>
+
+      <nav class="hidden md:flex gap-6 items-center">
+  <button class="navlink" onclick="go('home')">Home</button>
+
+  ${ (currentUser()?.usertype||currentUser()?.type)!=='needy'
+      ? '<button class="navlink" onclick="go(\'packages\')">Aid Packages</button>' : '' }
+
+  <button class="navlink" onclick="go('stories')">Stories</button>
+
+  ${ (currentUser()?.usertype||currentUser()?.type)==='needy'
+      ? '<button class="navlink" onclick="go(\'reqpkg\')">Request Package</button>'
+        + '<button class="navlink" onclick="go(\'reqitem\')">Request Item</button>'
+      : '' }
+
+    ${ (currentUser()?.usertype||currentUser()?.type)==='donor'
+    ? '<button class="navlink" onclick="go(\'donate\')">Donate</button>' : '' }
+
+  ${ ['admin','volunteer'].includes(currentUser()?.usertype||currentUser()?.type)
+      ? '<button class="navlink" onclick="go(\'queue\')">Aid Queue</button>' : '' }
+
+  ${ ['admin','volunteer'].includes(currentUser()?.usertype||currentUser()?.type)
+      ? '<button class="navlink" onclick="go(\'vmap\')">Volunteer Map</button>' : '' }
+</nav>
+
+
+      <div class="flex items-center gap-3">
+        ${u? `<span class="hidden sm:inline">${u.name||''}</span><button class="btn bg-white text-blue-800" onclick="onLogout()">Logout</button>`
+           : `<button class="btn bg-white text-blue-800" onclick="go('login')">Login</button><button class="btn btn-primary" onclick="go('register')">Register</button>`}
+      </div>
+    </div>
+  </header>`;
+}
+function Footer(){ return `<footer class="bg-gray-900 text-white mt-auto"><div class="text-center text-xs py-3 bg-gray-800">&copy; ${new Date().getFullYear()} অনুকূূল</div></footer>`; }
+
+function Home(){
+  
+  const funds = (state.stats && typeof state.stats.total_funds_raised === 'number')
+                  ? state.stats.total_funds_raised.toFixed(2) : '0.00';
+  
+                  return `<section class="fade-in">
+    <div class="bg-blue-700 text-white">
+      <div class="max-w-7xl mx-auto px-4 py-16 text-center">
+        <h1 class="text-4xl md:text-5xl font-bold mb-3">অনুকূূল : সবার জন্যে</h1>
+        <div class="mt-3 text-lg">Total funds raised: <span class="font-bold">৳ ${funds}</span></div>
+        <div class="mt-8 flex gap-3 justify-center flex-wrap">
+          <button class="btn bg-white text-blue-700" onclick="go('register')">Register</button>
+          <button class="btn btn-primary" onclick="go('packages')">View Packages</button>
+        </div>
+      </div>
+    </div>
+  </section>`;
+}
+
+function Packages(){
+  const u = currentUser();
+  const role = u?.usertype||u?.type;
+  const pk = state.packages || [];
+  const inv = state.inventory || [];
+
+  // Non-admin (public) view
+  if (role!=='admin') {
+    return `<div class="max-w-6xl mx-auto px-4 py-10 fade-in">
+      <h2 class="text-2xl font-bold mb-4">Aid Packages</h2>
+      <div class="grid md:grid-cols-3 gap-4">
+        ${pk.map(p=>`
+          <div class="card">
+            <h3 class="font-semibold">${p.name}</h3>
+            <p class="text-sm text-gray-600">${p.description||''}</p>
+            <ul class="mt-2 text-sm list-disc ml-5 text-gray-700">
+              ${p.items.map(i=>`<li>${i.quantity} ${i.unit} ${i.name}</li>`).join('')}
+            </ul>
+          </div>`).join('')}
+      </div>
+    </div>`;
+  }
+
+  // Admin view: tables + add forms
+  return `<div class="max-w-6xl mx-auto px-4 py-10 fade-in">
+    <h2 class="text-2xl font-bold mb-4">Aid Packages (Admin)</h2>
+
+    <div class="card mb-6">
+      <h3 class="font-semibold mb-2">Packages</h3>
+<div class="overflow-x-auto">
+  <table class="min-w-full text-sm">
+    <thead>
+      <tr class="text-left"><th>ID</th><th>Name</th><th>Description</th><th>Items</th></tr>
+    </thead>
+    <tbody>
+      ${pk.map(p=>`
+        <tr class="border-t">
+          <td>${p.id}</td>
+          <td class="font-semibold">${p.name}</td>
+          <td>${p.description||''}</td>
+          <td>${p.items.map(i=>`${i.quantity} ${i.unit} ${i.name}`).join(', ')}</td>
+        </tr>`).join('')}
+    </tbody>
+  </table>
+</div>
+
+      <form onsubmit="onAddInventory(event)" class="grid md:grid-cols-3 gap-3 mt-3">
+        <input class="field" name="item_name" placeholder="Item name" required>
+        <input class="field" name="unit" placeholder="kg / L / bottle / pcs" required>
+        <input class="field" type="number" min="1" name="quantity" placeholder="Qty" required>
+        <div class="md:col-span-3"><button class="btn btn-primary">Add / Increase Item</button></div>
+      </form>
+    </div>
+
+    <div class="card">
+      <h3 class="font-semibold mb-2">Packages</h3>
+      <div class="overflow-x-auto">
+        <table class="min-w-full text-sm">
+                    <thead>
+            <tr class="text-left"><th>Item</th><th>Unit</th><th>Quantity</th><th>Actions</th></tr>
+          </thead>
+          <tbody>
+            ${inv.map(i=>`
+              <tr class="border-t">
+                <td>${i.name||i.item_name}</td>
+                <td>${i.unit}</td>
+                <td>${i.quantity}</td>
+                <td><button class="btn" onclick="onEditInventory('${i.name||i.item_name}','${i.unit}',${i.quantity})">Edit</button></td>
+              </tr>`).join('')}
+          </tbody>
+
+
+        </table>
+      </div>
+
+      <div class="grid md:grid-cols-2 gap-6 mt-4">
+        <form onsubmit="onAddPackage(event)" class="space-y-3">
+          <h4 class="font-semibold">Add Package</h4>
+          <input class="field" name="name" placeholder="Package name" required>
+          <input class="field" name="description" placeholder="Description">
+          <button class="btn btn-primary w-full">Create Package</button>
+        </form>
+
+        <form onsubmit="onAddPackageItem(event)" class="space-y-3">
+          <h4 class="font-semibold">Add Item to Package</h4>
+          <input class="field" type="number" name="package_id" placeholder="Package ID" required>
+          <input class="field" name="item_name" placeholder="Item name" required>
+          <div class="grid grid-cols-2 gap-3">
+            <input class="field" name="unit" placeholder="Unit (kg/L/pcs)" required>
+            <input class="field" type="number" name="quantity" min="1" placeholder="Quantity" required>
+          </div>
+          <button class="btn w-full">Add to Package</button>
+        </form>
+      </div>
+    </div>
+  </div>`;
+}
+function InventoryAdmin(){ return Packages(); }
+
+window.onAddInventory = async function(e){
+  e.preventDefault();
+  const f=new FormData(e.target);
+  await addInventory(f.get('item_name'), f.get('unit'), Number(f.get('quantity')));
+  toast('Inventory updated','success');
+  state.inventory = await fetchInventory();
+  render();
+};
+window.onEditInventory = async function(item_name, unit, currentQty){
+  const newQty = Number(prompt(`Update quantity for ${item_name} (${unit})`, currentQty));
+  if(!Number.isFinite(newQty)) return;
+  await jsonFetch('api.php?action=inventory', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({ op:'update', item_name, unit, quantity:newQty })
+  });
+  toast('Inventory updated','success');
+  state.inventory = await fetchInventory();
+  render();
+};
+
+window.onAddPackage = async function(e){
+  e.preventDefault();
+  const f=new FormData(e.target);
+  await jsonFetch('api.php?action=packages', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({ op:'add_package', name: f.get('name'), description: f.get('description') })
+  });
+  toast('Package created','success');
+  const pk = await fetchPackages();
+  state.packages = joinPackages(pk);
+  render();
+};
+
+window.onAddPackageItem = async function(e){
+  e.preventDefault();
+  const f=new FormData(e.target);
+  await jsonFetch('api.php?action=packages', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({
+      op:'add_item',
+      package_id: Number(f.get('package_id')),
+      item_name: f.get('item_name'),
+      unit: f.get('unit'),
+      quantity: Number(f.get('quantity'))
+    })
+  });
+  toast('Item added to package','success');
+  const pk = await fetchPackages();
+  state.packages = joinPackages(pk);
+  render();
+};
+function RequestPackage(){
+  const u = currentUser(); if(!u) return mustLogin();
+  const pk = state.packages || [];
+
+  return `<div class="max-w-5xl mx-auto px-4 py-10 fade-in">
+    <h2 class="text-2xl font-bold mb-4">Request a Package</h2>
+
+    <form onsubmit="onAidRequest(event)" class="card">
+      <input type="hidden" name="mode" value="package">
+      <div class="overflow-x-auto">
+        <table class="min-w-full text-sm">
+          <thead>
+            <tr class="text-left">
+              <th>Name</th><th>Description</th><th>Items</th><th>Request Qty</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${pk.map(p=>`
+              <tr class="border-t">
+                <td class="font-semibold">${p.name}</td>
+                <td>${p.description||''}</td>
+                <td>${p.items.map(i=>`${i.quantity} ${i.unit} ${i.name}`).join(', ')}</td>
+                <td style="width:120px"><input class="field" type="number" min="0" name="pkgqty_${p.id}" placeholder="qty"></td>
+              </tr>`).join('')}
+          </tbody>
+        </table>
+      </div>
+
+      <label class="block text-sm mt-4 mb-2">Why you need assistance (details)</label>
+      <textarea class="field" name="reason" rows="3" placeholder="Write a brief reason"></textarea>
+
+      <div class="mt-4">
+        <button class="btn btn-primary">Submit Application</button>
+      </div>
+    </form>
+  </div>`;
+}
+
+
+function RequestItem(){
+  const u=currentUser(); if(!u) return mustLogin();
+  const inv = state.inventory||[];
+  return `<div class="max-w-5xl mx-auto px-4 py-10 fade-in">
+    <h2 class="text-2xl font-bold mb-4">Request a Specific Item</h2>
+    <form onsubmit="onAidRequest(event)" class="card space-y-4">
+      <input type="hidden" name="mode" value="item">
+      <div class="overflow-x-auto">
+        <table class="min-w-full text-sm">
+          <thead><tr class="text-left"><th>Item</th><th>Unit</th><th>In stock</th><th>Request Qty</th></tr></thead>
+          <tbody>
+  ${inv.map((i,idx)=>`
+    <tr class="border-t">
+      <td>
+        ${i.name||i.item_name}
+        <input type="hidden" name="item_name_${idx}" value="${i.name||i.item_name}">
+      </td>
+      <td>
+        ${i.unit}
+        <input type="hidden" name="unit_${idx}" value="${i.unit}">
+      </td>
+      <td>${i.quantity}</td>
+      <td>
+        <input type="number" min="0" class="field" name="quantity_${idx}" placeholder="qty">
+      </td>
+    </tr>`).join('')}
+</tbody>
+
+        </table>
+      </div>
+      <div>
+        <label class="block mb-1">Why you need assistance (details)</label>
+        <textarea class="field" name="reason" rows="3" required></textarea>
+      </div>
+      <button class="btn btn-primary">Submit Application</button>
+    </form>
+  </div>`;
+}
+
+function Register(){
+  return `<div class="max-w-xl mx-auto px-4 py-10 fade-in card">
+    <h2 class="text-2xl font-bold mb-4">Register</h2>
+    <form onsubmit="onRegister(event)" class="space-y-4">
+      <div class="grid md:grid-cols-2 gap-4">
+        <div><label class="block mb-1">First name</label><input class="field" name="first_name" required /></div>
+        <div><label class="block mb-1">Last name</label><input class="field" name="last_name" required /></div>
+      </div>
+      <div><label class="block mb-1">National ID (NID)</label><input class="field" name="nid" required /></div>
+      <div class="grid md:grid-cols-2 gap-4">
+        <div><label class="block mb-1">Age</label><input type="number" min="1" max="120" class="field" name="age" required /></div>
+        <div>
+          <label class="block mb-1">User Type</label>
+          <select class="field" name="usertype" required>
+            <option value="needy">Aid Seeker</option>
+            <option value="donor">Donor</option>
+            <option value="volunteer">Volunteer</option>
+          </select>
+        </div>
+      </div>
+      <div><label class="block mb-1">District</label>${districtSelect('district')}</div>
+      <div class="grid md:grid-cols-2 gap-4">
+        <div><label class="block mb-1">Email</label><input type="email" class="field" name="email" required /></div>
+        <div><label class="block mb-1">Phone</label><input class="field" name="phone" required /></div>
+      </div>
+      <div><label class="block mb-1">Password</label><input type="password" class="field" name="password" required /></div>
+      <button class="btn btn-primary w-full">Register</button>
+    </form>
+  </div>`;
+}
+function Login(){
+  return `<div class="max-w-md mx-auto px-4 py-10 fade-in card">
+    <h2 class="text-2xl font-bold mb-4">Login</h2>
+    <form onsubmit="onLogin(event)" class="space-y-4">
+      <div><label class="block mb-1">NID</label><input class="field" name="nid" required /></div>
+      <div><label class="block mb-1">Password</label><input type="password" class="field" name="password" required /></div>
+      <button class="btn btn-primary w-full">Login</button>
+    </form>
+  </div>`;
+}
+function RequestAid(){
+  const u = currentUser(); if(!u) return mustLogin();
+  const packages = state.packages||[]; const inv = state.inventory||[];
+  return `<div class="max-w-4xl mx-auto px-4 py-10 fade-in">
+    <h2 class="text-2xl font-bold mb-4">Apply for Assistance</h2>
+<form onsubmit="onAidRequest(event)" class="space-y-6 card">
+  <div class="flex gap-6">
+    <label class="flex items-center gap-2"><input type="radio" name="mode" value="package" checked> Package</label>
+    <label class="flex items-center gap-2"><input type="radio" name="mode" value="item"> Specific Item</label>
+  </div>
+
+  <div id="mode-package">
+    <label class="block mb-2 font-semibold">Packages</label>
+    <div class="overflow-x-auto">
+      <table class="min-w-full text-sm">
+        <thead><tr class="text-left"><th>Select</th><th>Name</th><th>Description</th><th>Items</th></tr></thead>
+        <tbody>
+          ${packages.map(p=>`
+            <tr class="border-t">
+              <td><input type="radio" name="packageId" value="${p.id}"></td>
+              <td class="font-semibold">${p.name}</td>
+              <td>${p.description||''}</td>
+              <td>${p.items.map(i=>`${i.quantity} ${i.unit} ${i.name}`).join(', ')}</td>
+            </tr>`).join('')}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div id="mode-item" class="hidden">
+    <label class="block mb-2 font-semibold">Available Items</label>
+    <div class="overflow-x-auto">
+      <table class="min-w-full text-sm">
+        <thead><tr class="text-left"><th>Item</th><th>Unit</th><th>In stock</th><th>Request Qty</th></tr></thead>
+        <tbody>
+          ${inv.map(i=>`
+            <tr class="border-t">
+              <td>${i.name||i.item_name}</td>
+              <td>${i.unit}</td>
+              <td>${i.quantity}</td>
+              <td>
+                <input type="hidden" name="item_name" value="${i.name||i.item_name}">
+                <input type="hidden" name="unit" value="${i.unit}">
+                <input type="number" min="1" class="field" name="quantity" placeholder="quantity for ${i.name||i.item_name}">
+              </td>
+            </tr>`).join('')}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div>
+    <label class="block mb-1">Why you need assistance (details)</label>
+    <textarea class="field" name="reason" rows="3" required></textarea>
+  </div>
+  <button class="btn btn-primary">Submit Application</button>
+</form>
+
+  </div>`;
+}
+function Donate(){
+  const u = currentUser(); if(!u) return mustLogin();
+  if (u.usertype !== 'donor' && u.usertype !== 'admin')
+    return `<div class="max-w-xl mx-auto px-4 py-10"><div class="card">Donor access only</div></div>`;
+  return `<div class="max-w-3xl mx-auto px-4 py-10 fade-in">
+    <h2 class="text-2xl font-bold mb-4">Make a Donation</h2>
+    <div class="grid md:grid-cols-2 gap-6">
+      <div class="card">
+        <h3 class="font-semibold mb-2">Donate Money</h3>
+        <form onsubmit="onDonateMoney(event)" class="space-y-3">
+          <div><label class="block mb-1">Amount (৳)</label><input type="number" min="1" class="field" name="amount" required></div>
+          <button class="btn btn-primary w-full">Donate Money</button>
+        </form>
+      </div>
+      <div class="card">
+        <h3 class="font-semibold mb-2">Donate Aid Item</h3>
+        <form onsubmit="onDonateItem(event)" class="space-y-3">
+          <div><label class="block mb-1">Item name</label><input class="field" name="item_name" required></div>
+          <div class="grid grid-cols-2 gap-3">
+            <div><label class="block mb-1">Unit</label><input class="field" name="unit" placeholder="kg / L / bottle" required></div>
+            <div><label class="block mb-1">Quantity</label><input type="number" min="1" class="field" name="quantity" required></div>
+          </div>
+          <button class="btn w-full">Donate Item</button>
+        </form>
+      </div>
+    </div>
+  </div>`;
+}
+window.onDistributed = async function(id){
+  try{
+    await jsonFetch('api.php?action=aidRequests', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ op:'distribute', request_id: id })
+    });
+    toast('Marked as distributed','success');
+    state.aidRequests = await jsonFetch('api.php?action=aidRequests');
+    render();
+  }catch(e){ toast(e.message||'Failed','error'); }
+};
+
+window.onDonateMoney = async function(e){
+  e.preventDefault();
+  const amt = Number(new FormData(e.target).get('amount'));
+  try{
+    await donateMoney(amt);
+    toast('Thank you for your donation!','success');
+    state.stats = await fetchStats().catch(()=>state.stats);
+    render(); // refresh header funds chip
+
+  }catch(err){ toast(err.message||'Donation failed','error'); }
+};
+window.onDonateItem = async function(e){
+  e.preventDefault();
+  const f = new FormData(e.target);
+  const payload = { item_name: f.get('item_name'), unit: f.get('unit'), quantity: Number(f.get('quantity')) };
+  try{
+    await donateItem(payload);
+    toast('Item added to inventory — thank you!','success');
+    state.inventory = await fetchInventory().catch(()=>state.inventory||[]);
+  }catch(err){ toast(err.message||'Donation failed','error'); }
+};
+
+function Stories(){
+  const u=currentUser(); if(!u) return mustLogin();
+  const role=u.usertype||u.type;
+  const canEdit = (role==='admin');
+  const rows = state.stories||[];
+
+  return `<div class="max-w-7xl mx-auto px-4 py-10 fade-in">
+    <h2 class="text-2xl font-bold mb-4">Success Stories</h2>
+
+    <div class="card overflow-x-auto">
+      <table class="min-w-full text-sm tbl">
+        <thead>
+          <tr>
+            <th>Before</th>
+            <th>After</th>
+            <th>Title</th>
+            <th>Narrative</th>
+            ${canEdit?'<th>Actions</th>':''}
+          </tr>
+        </thead>
+        <tbody>
+          ${rows.map(s=>`
+            <tr>
+              <td><img src="${s.before_url}" alt="before" style="width:120px;height:80px;object-fit:cover;border-radius:8px"></td>
+              <td><img src="${s.after_url}" alt="after"  style="width:120px;height:80px;object-fit:cover;border-radius:8px"></td>
+              <td class="font-semibold">${s.title||'Untitled'}</td>
+              <td style="max-width:420px">${(s.narrative||'').replace(/\n/g,'<br>')}</td>
+              ${canEdit?`<td><button class="btn" onclick="onDeleteStory(${s.id})">Delete</button></td>`:''}
+            </tr>`).join('')}
+        </tbody>
+      </table>
+    </div>
+
+    ${canEdit?`
+    <div class="card mt-6">
+      <h3 class="font-semibold mb-2">Add a Story</h3>
+      <form onsubmit="onCreateStory(event)" enctype="multipart/form-data" class="grid md:grid-cols-2 gap-3">
+        <input class="field" name="title" placeholder="Title" required>
+        <input class="field" type="file" name="before" accept="image/*" required>
+        <input class="field" type="file" name="after" accept="image/*" required>
+        <textarea class="field md:col-span-2" name="narrative" rows="4" placeholder="Narrative" required></textarea>
+        <button class="btn btn-primary md:col-span-2">Save Story</button>
+      </form>
+    </div>`:''}
+  </div>`;
+}
+
+
+window.onCreateStory = async function(e){
+  e.preventDefault();
+  const f = new FormData(e.target);
+  await createStory(f);
+  toast('Story saved','success');
+  state.stories = await fetchStories().catch(()=>[]);
+  render();
+};
+
+window.onDeleteStory = async function(id){
+  if(!confirm('Delete this story?')) return;
+  await deleteStory(id);
+  toast('Deleted','success');
+  state.stories = await fetchStories().catch(()=>[]);
+  render();
+};
+
+function VolunteerMap(){
+  const u=currentUser(); if(!u) return mustLogin();
+  const role = u.usertype||u.type;
+  const canEdit = (role==='volunteer');
+
+  // table rows built after we fetch, so we place a holder here
+  return `<div class="max-w-6xl mx-auto px-4 py-10 fade-in">
+    <h2 class="text-2xl font-bold mb-4">Volunteer Map</h2>
+
+    <div id="vol-map" style="width:100%;height:520px;border-radius:16px;overflow:hidden;"></div>
+
+    ${canEdit ? `
+    <div class="card mt-4">
+      <h3 class="font-semibold mb-2">Set my district</h3>
+      <div class="grid md:grid-cols-3 gap-3">
+        <div class="md:col-span-2">
+          <label class="block mb-1">District</label>${districtSelect('district', true)}
+        </div>
+        <div class="flex items-end">
+          <button class="btn btn-primary w-full" onclick="onSetLocationDistrict()">Save</button>
+        </div>
+      </div>
+      <small class="text-gray-500 block mt-2">A marker will be placed at the center of the selected district.</small>
+    </div>` : ``}
+
+    ${ (role==='admin')
+        ? `<div class="card mt-4">
+             <h3 class="font-semibold mb-2">Volunteers</h3>
+             <div id="vol-table">Loading…</div>
+           </div>`
+        : '' }
+  </div>`;
+}
+
+function AidQueue(){
+  const u = currentUser(); if(!u) return mustLogin();
+  if (!(u.usertype==='admin'||u.usertype==='volunteer'))
+    return `<div class="max-w-xl mx-auto px-4 py-10"><div class="card">Unauthorized</div></div>`;
+  const rows = state.aidRequests || [];
+  return `<div class="max-w-6xl mx-auto px-4 py-10 fade-in">
+    <h2 class="text-2xl font-bold mb-4">Aid Queue</h2>
+    <div class="space-y-3">
+      ${rows.map(r=>`
+        <div class="card">
+          <div class="flex items-center justify-between">
+            <div>
+              <div class="font-semibold">#${r.request_id} — ${r.name||'User'} ${r.package_name?`<span class="text-xs text-gray-600">[package: ${r.package_name}]</span>`:''}</div>
+              <div class="text-sm text-gray-600">${r.reason||''}</div>
+              ${r.mode==='item' && r.items?.length ? `<ul class="text-xs list-disc ml-5 mt-1">${r.items.map(i=>`<li>${i.quantity} ${i.unit} ${i.item_name||i.name}</li>`).join('')}</ul>`:''}
+              <div class="text-xs text-gray-500">Status: ${r.request_status}</div>
+            </div>
+            <div class="flex gap-2">
+  ${
+    r.request_status==='pending'
+      ? `<button class="btn" onclick="onReject(${r.request_id})">Reject</button>
+         <button class="btn btn-primary" onclick="onApprove(${r.request_id})">Approve</button>`
+      : r.request_status==='approved' && (currentUser().usertype==='volunteer' || currentUser().usertype==='admin')
+        ? `<button class="btn btn-primary" onclick="onDistributed(${r.request_id})">Mark Distributed</button>`
+        : `<span class="text-sm">${r.request_status}</span>`
+  }
+</div>
+
+          </div>
+        </div>`).join('')}
+    </div>
+  </div>`;
+}
+
+// -------------- handlers (global) --------------
+async function onRegister(e){
+  e.preventDefault();
+  const f=new FormData(e.target);
+  const payload={
+    first_name:f.get('first_name').trim(),
+    last_name:f.get('last_name').trim(),
+    name:`${f.get('first_name').trim()} ${f.get('last_name').trim()}`.trim(),
+    nid:f.get('nid').trim(),
+    age:Number(f.get('age')),
+    usertype:f.get('usertype'),
+    district:f.get('district'),
+    email:f.get('email').trim(),
+    phone:f.get('phone').trim(),
+    password:f.get('password')
+  };
+  try{
+    const u=await addUser(payload);
+    state.session={ id:u.id, name:payload.name, usertype:u.usertype };
+    localStorage.setItem('session', JSON.stringify(state.session));
+
+    toast('Registration successful','success');
+    go(u.usertype==='needy'?'reqpkg':'home');
+  }catch(err){ toast(err.message||'Registration failed','error'); }
+}
+async function onLogin(e){
+  e.preventDefault();
+  const f=new FormData(e.target);
+  try{
+    const u=await login(f.get('nid'), f.get('password'));
+    state.session={ id:u.id, name:u.name, usertype:u.type||u.usertype };
+    localStorage.setItem('session', JSON.stringify(state.session));
+
+    toast(`Welcome ${u.name}`,'success');
+    go(u.usertype==='needy'?'reqpkg':'home');
+  }catch(err){ toast(err.message||'Login failed','error'); }
+}
+window.onLogout = async function(){
+  try { await jsonFetch('api.php?action=logout', { method:'POST' }); } catch(e) {}
+  state.session = null;
+  localStorage.removeItem('session');
+
+  toast('Logged out','success');
+  go('home');
+};
+async function onAidRequest(e){
+  e.preventDefault();
+  const f=new FormData(e.target);
+  const mode = f.get('mode') || 'package';
+  const reason = f.get('reason') || '';
+  try{
+    if (mode === 'package') {
+  const f = new FormData(e.target);
+  const keys = [...f.keys()].filter(k => k.startsWith('pkgqty_'));
+  const picks = keys.map(k => {
+    const id = Number(k.split('_')[1]);
+    const q  = Number(f.get(k));
+    return (q > 0) ? { package_id:id, quantity:q } : null;
+  }).filter(Boolean);
+
+  if (picks.length === 0) { throw new Error('Enter quantity for at least one package'); }
+
+  for (const p of picks) {
+    await createAidRequest({ mode:'package', package_id:p.package_id, quantity:p.quantity, reason });
+  }
+
+toast('Application submitted','success');
+state.aidRequests = await fetchAidRequests().catch(()=>[]);
+render();
+}
+
+    else if (mode === 'item') {
+  const f = new FormData(e.target);
+
+  // gather every row where quantity_# > 0
+  const qtyKeys = [...f.keys()].filter(k => k.startsWith('quantity_'));
+  const items = qtyKeys.map(k => {
+    const idx = k.split('_')[1];
+    const qty = Number(f.get(k));
+    if (qty > 0) {
+      return {
+        item_name: f.get('item_name_' + idx),
+        unit: f.get('unit_' + idx),
+        quantity: qty
+      };
+    }
+    return null;
+  }).filter(Boolean);
+
+  if (items.length === 0) { throw new Error('Enter quantity for at least one item'); }
+
+  // submit one request per filled row (no server change needed)
+  for (const it of items) {
+    await createAidRequest({ mode:'item', item_name:it.item_name, unit:it.unit, quantity:it.quantity, reason });
+  }
+
+  toast('Application submitted','success');
+  state.aidRequests = await fetchAidRequests().catch(()=>[]);
+  render();
+}
+
+
+  }catch(err){ toast(err.message||'Submit failed','error'); }
+}
+
+
+window.onApprove=async function(id){
+  try{
+    await jsonFetch('api.php?action=aidRequests',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({op:'approve',request_id:id})});
+    toast('Approved','success');
+    const [reqs,inv]=await Promise.all([jsonFetch('api.php?action=aidRequests'), jsonFetch('api.php?action=inventory')]);
+    state.aidRequests=reqs; state.inventory=inv; render();
+  }catch(e){ toast(e.message||'Approve failed','error'); }
+};
+window.onReject=async function(id){
+  try{
+    await jsonFetch('api.php?action=aidRequests',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({op:'reject',request_id:id})});
+    toast('Rejected','success');
+    state.aidRequests=await jsonFetch('api.php?action=aidRequests'); render();
+  }catch(e){ toast(e.message||'Reject failed','error'); }
+};
+
+// -------------- volunteer map init --------------
+
+let __leaflet, __markerLayer;
+async function initVolunteerMap(){
+  
+  const rows = await getLocations().catch(()=>[]);
+
+  // always recreate the map when (re)entering the page
+  if (__leaflet) { try { __leaflet.remove(); } catch(e) {} __leaflet = null; }
+  __leaflet = L.map('vol-map').setView([23.777,90.399],7);
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
+              {maxZoom:19, attribution:'&copy; OpenStreetMap'}).addTo(__leaflet);
+  setTimeout(()=>__leaflet.invalidateSize(), 100);
+
+  if(__markerLayer){ try{ __markerLayer.remove(); }catch(e){} }
+  __markerLayer = L.layerGroup().addTo(__leaflet);
+  
+
+
+  rows.forEach(v=>{
+    const lat=parseFloat(v.lat), lng=parseFloat(v.lng);
+    if(!isNaN(lat)&&!isNaN(lng)){
+      L.marker([lat,lng]).addTo(__markerLayer)
+        .bindPopup(`<strong>${v.name||'Volunteer'}</strong><br>${v.district||''}`);
+    }
+  });
+
+  // if admin, draw table
+  const u=currentUser(), role=u?.usertype||u?.type;
+  if(role==='admin'){
+    const div = document.getElementById('vol-table');
+    if(div){
+      div.innerHTML = `<div class="overflow-x-auto">
+        <table class="min-w-full w-full text-sm">
+
+          <thead><tr class="text-left">
+            <th>User ID</th><th>Name</th><th>District</th><th>Lat</th><th>Lng</th>
+          </tr></thead>
+          <tbody>
+          ${rows.map(r=>`
+            <tr class="border-t">
+              <td>${r.user_id}</td>
+              <td>${r.name||''}</td>
+              <td>${r.district||''}</td>
+              <td>${r.lat??''}</td>
+              <td>${r.lng??''}</td>
+            </tr>`).join('')}
+          </tbody>
+        </table>
+      </div>`;
+    }
+  }
+}
+
+window.useMyGPS=function(){
+  if(!navigator.geolocation){ toast('Geolocation not supported','error'); return; }
+  navigator.geolocation.getCurrentPosition(
+    pos=>{ const {latitude,longitude}=pos.coords; document.getElementById('lat').value=latitude.toFixed(6); document.getElementById('lng').value=longitude.toFixed(6); toast('Got your coordinates','success'); },
+    err=>toast('Could not get location: '+err.message,'error'),
+    {enableHighAccuracy:true,timeout:10000}
+  );
+};
+window.onSetLocationDistrict = async function(){
+  const district = document.querySelector('select[name="district"]')?.value;
+  if (!district) { toast('Please choose a district','error'); return; }
+  const c = DIST_CENTROID[district];
+  const lat = c ? c[0] : null, lng = c ? c[1] : null;
+  try{
+    await setMyLocation({ lat, lng, district });
+    toast('Location updated','success');
+    await initVolunteerMap();
+  }catch(e){ toast(e.message||'Update failed','error'); }
+};
+
+
+
+// -------------- approval notifications --------------
+const key='approvedNotified'; const notified=new Set(JSON.parse(localStorage.getItem(key)||'[]'));
+function checkApprovals(){
+  if(!state.aidRequests||!state.aidRequests.length) return;
+  state.aidRequests.forEach(r=>{
+    if(r.request_status==='approved' && !notified.has(r.request_id)){
+      toast(`Your request #${r.request_id} has been approved 🎉`,'success');
+      notified.add(r.request_id);
+    }
+  });
+  localStorage.setItem(key,JSON.stringify(Array.from(notified)));
+}
+
+// -------------- render & boot --------------
+function render(){
+const views = {
+  home: Home,
+  register: Register,
+  login: Login,
+  packages: Packages,
+  // inventory removed (we show inventory inside Packages for admin)
+  queue: AidQueue,
+  vmap: VolunteerMap,
+  reqpkg: RequestPackage,
+  reqitem: RequestItem,
+  donate: Donate,
+  stories: Stories
+};
+
+
+
+  const View=views[state.route]||Home;
+  document.getElementById('app').innerHTML=`${Header()}${View()}${Footer()}`;
+  if(state.route==='vmap'){
+    const u=currentUser();
+    if(u && (u.usertype==='admin'||u.usertype==='volunteer')) setTimeout(initVolunteerMap,50);
+  }
+}
+window.addEventListener('hashchange',()=>go(location.hash.replace('#','')));
+window.addEventListener('load', async ()=>{
+try{
+  // restore cached session if exists
+const cached = JSON.parse(localStorage.getItem('session')||'null');
+if (cached) { state.session = cached; }
+
+  const sess = await getSession();
+  if (sess?.user) { state.session = { id:sess.user.id, name:sess.user.name, usertype:sess.user.type }; }
+
+  const [stats, inv, pk, stories] = await Promise.all([
+    fetchStats().catch(()=>({total_funds_raised:0})),
+    fetchInventory(),
+    fetchPackages(), fetchStories().catch(()=>[])
+  ]);
+  state.stats = stats;
+  state.inventory = inv.map(i=>({ name:i.item_name||i.name, unit:i.unit, quantity:Number(i.quantity) }));
+  state.packages  = joinPackages(pk);
+  state.stories   = stories;
+
+
+  if (state.session) {
+    state.aidRequests = await fetchAidRequests().catch(()=>[]);
+  }
+} catch(e) { console.warn(e); }
+render();
+
+});
+</script>
+
+<!-- after the inline script -->
+<script src="app.js"></script>
+
+</body>
+</html>
